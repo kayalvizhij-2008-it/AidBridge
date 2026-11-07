@@ -1,0 +1,266 @@
+// AidBridge Prisma Schema
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Organisation {
+  id           String            @id @default(cuid())
+  name         String
+  type         String // GOVERNMENT, OUTREACH_NGO, SHELTER, HOSPITAL, CASE_MGMT
+  jurisdiction String?
+  address      String?
+  contactEmail String?
+  phone        String?
+  lat          Float?
+  lng          Float?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  users        User[]
+  individuals  Individual[]
+  cases        Case[]
+  providers    ServiceProvider[]
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         String // ROLE_ADMIN, ROLE_OUTREACH, ROLE_SHELTER, ROLE_HOSPITAL, ROLE_MANAGER
+  orgId        String
+  organisation Organisation  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  status       String        @default("ACTIVE") // ACTIVE, SUSPENDED
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  registeredIndividuals Individual[]      @relation("RegisteredBy")
+  createdCases          Case[]            @relation("CreatedBy")
+  assignedCases         Case[]            @relation("AssignedManager")
+  assessments           NeedsAssessment[] @relation("AssessedBy")
+  sentReferrals         Referral[]        @relation("ReferredBy")
+  acceptedReferrals     Referral[]        @relation("AcceptedBy")
+  deliveries            ServiceDelivery[] @relation("DeliveredBy")
+  verifications         Verification[]    @relation("VerifiedBy")
+  assignedFollowUps     FollowUp[]        @relation("AssignedFollowUp")
+  notifications         Notification[]
+}
+
+model Individual {
+  id                String       @id @default(cuid())
+  caseId            String       @unique // e.g., AID-2026-0042
+  firstName         String
+  lastName          String
+  ageCategory       String // CHILD, YOUTH, ADULT, ELDERLY
+  approximateAge    Int?
+  gender            String?
+  contactPhone      String?
+  currentLocus      String? // e.g., North District Station, Community Park
+  consentGiven      Boolean      @default(true)
+  consentNotes      String?
+  safeguardingFlags String? // comma-separated or json note
+  registeredById    String
+  registeredBy      User         @relation("RegisteredBy", fields: [registeredById], references: [id])
+  orgId             String
+  organisation      Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  cases Case[]
+}
+
+model Case {
+  id                String       @id @default(cuid())
+  caseNumber        String       @unique // e.g., CASE-2026-0101
+  individualId      String
+  individual        Individual   @relation(fields: [individualId], references: [id], onDelete: Cascade)
+  title             String
+  status            String       @default("OPEN") // DRAFT, OPEN, REFERRED, IN_PROGRESS, PENDING_VERIFICATION, VERIFIED, CLOSED, ESCALATED
+  priority          String       @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  assignedManagerId String?
+  assignedManager   User?        @relation("AssignedManager", fields: [assignedManagerId], references: [id])
+  createdById       String
+  createdBy         User         @relation("CreatedBy", fields: [createdById], references: [id])
+  orgId             String
+  organisation      Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  closedAt          DateTime?
+  closeReason       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  needsAssessments NeedsAssessment[]
+  referrals        Referral[]
+  deliveries       ServiceDelivery[]
+  verifications    Verification[]
+  followUps        FollowUp[]
+  timelines        CaseTimeline[]
+}
+
+model NeedsAssessment {
+  id           String   @id @default(cuid())
+  caseId       String
+  case         Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  category     String // EMERGENCY_SHELTER, FOOD_NUTRITION, MEDICAL_ASSISTANCE, CLOTHING_WARMTH, ELDERLY_CARE, CHILD_PROTECTION, WELFARE_SUPPORT
+  urgency      String   @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  notes        String?
+  assessedById String
+  assessedBy   User     @relation("AssessedBy", fields: [assessedById], references: [id])
+  createdAt    DateTime @default(now())
+}
+
+model ServiceProvider {
+  id                String       @id @default(cuid())
+  name              String
+  type              String // SHELTER, CLINIC_HOSPITAL, FOOD_BANK, NGO, GOVERNMENT_OFFICE
+  address           String?
+  lat               Float?
+  lng               Float?
+  capacityTotal     Int          @default(0)
+  capacityAvailable Int          @default(0)
+  contactPhone      String?
+  contactEmail      String?
+  orgId             String
+  organisation      Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  services  Service[]
+  referrals Referral[]
+  resources Resource[]
+}
+
+model Service {
+  id          String          @id @default(cuid())
+  providerId  String
+  provider    ServiceProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  name        String
+  category    String // SHELTER, HEALTHCARE, MEALS, CLOTHING, LEGAL_AID, PSYCHOSOCIAL
+  description String?
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+}
+
+model Resource {
+  id             String          @id @default(cuid())
+  providerId     String
+  provider       ServiceProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  type           String // EMERGENCY_BED, TRANSITIONAL_BED, MEAL_PACK, HYGIENE_KIT, MEDICAL_BED, WARM_CLOTHING
+  name           String
+  totalCount     Int             @default(0)
+  availableCount Int             @default(0)
+  unit           String          @default("units")
+  updatedAt      DateTime        @updatedAt
+}
+
+model Referral {
+  id               String          @id @default(cuid())
+  caseId           String
+  case             Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  providerId       String
+  provider         ServiceProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  requestedService String
+  priority         String          @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  status           String          @default("PENDING") // PENDING, ACCEPTED, REJECTED, CANCELLED, COMPLETED
+  notes            String?
+  rejectionReason  String?
+  referredById     String
+  referredBy       User            @relation("ReferredBy", fields: [referredById], references: [id])
+  acceptedById     String?
+  acceptedBy       User?           @relation("AcceptedBy", fields: [acceptedById], references: [id])
+  respondedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  deliveries ServiceDelivery[]
+}
+
+model ServiceDelivery {
+  id            String    @id @default(cuid())
+  referralId    String
+  referral      Referral  @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  caseId        String
+  case          Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  serviceType   String
+  deliveredAt   DateTime  @default(now())
+  deliveredById String
+  deliveredBy   User      @relation("DeliveredBy", fields: [deliveredById], references: [id])
+  evidenceNotes String?
+  locationNotes String?
+  verified      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  verifications Verification[]
+}
+
+model Verification {
+  id                String          @id @default(cuid())
+  serviceDeliveryId String
+  serviceDelivery   ServiceDelivery @relation(fields: [serviceDeliveryId], references: [id], onDelete: Cascade)
+  caseId            String
+  case              Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  verifiedById      String
+  verifiedBy        User            @relation("VerifiedBy", fields: [verifiedById], references: [id])
+  status            String          @default("CONFIRMED") // CONFIRMED, REJECTED, PENDING_DOCS
+  remarks           String
+  verifiedAt        DateTime        @default(now())
+}
+
+model FollowUp {
+  id            String    @id @default(cuid())
+  caseId        String
+  case          Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  scheduledDate DateTime
+  status        String    @default("SCHEDULED") // SCHEDULED, COMPLETED, OVERDUE, ESCALATED
+  notes         String?
+  outcome       String?
+  assignedToId  String
+  assignedTo    User      @relation("AssignedFollowUp", fields: [assignedToId], references: [id])
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model CaseTimeline {
+  id          String   @id @default(cuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  eventType   String // REGISTRATION, ASSESSMENT, REFERRAL_SENT, REFERRAL_ACCEPTED, REFERRAL_REJECTED, SERVICE_DELIVERED, VERIFICATION_CONFIRMED, ESCALATION, CASE_CLOSED, FOLLOWUP_SCHEDULED, FOLLOWUP_COMPLETED
+  title       String
+  description String
+  actorId     String?
+  actorRole   String?
+  createdAt   DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  actorEmail String
+  actorRole String
+  action    String // CREATE, UPDATE, DELETE, VERIFY, CLOSE, ESCALATE, LOGIN
+  entity    String // CASE, REFERRAL, SERVICE_DELIVERY, VERIFICATION, USER, ORG
+  entityId  String
+  details   String? // JSON or text
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleTarget  String? // e.g. ROLE_MANAGER, ROLE_ADMIN
+  orgIdTarget String?
+  title       String
+  message     String
+  type        String // REFERRAL, VERIFICATION, ESCALATION, FOLLOWUP, RESOURCE
+  read        Boolean  @default(false)
+  linkUrl     String?
+  createdAt   DateTime @default(now())
+}
